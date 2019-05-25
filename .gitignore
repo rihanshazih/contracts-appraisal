@@ -1,0 +1,7 @@
+config.*.json
+package-lock.json
+.idea
+.serverless
+scripts
+node_modules
+venv

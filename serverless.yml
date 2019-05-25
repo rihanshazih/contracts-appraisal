@@ -1,0 +1,51 @@
+service: contracts-appraisal
+
+provider:
+  name: aws
+  stage: ${opt:stage, 'dev'}
+  runtime: python3.6
+  region: us-east-1
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:*
+      Resource: "arn:aws:dynamodb:us-east-1:*:table/contract-appraisal-*"
+
+functions:
+  parser:
+    handler: parser.handle
+    events:
+      - schedule: cron(30 * * * ? *)
+    environment:
+      CLIENT_ID: ${file(./config.${self:provider.stage}.json):clientId}
+      CLIENT_SECRET: ${file(./config.${self:provider.stage}.json):clientSecret}
+    timeout: 240
+  getItemPrice:
+    handler: getItemPrice.handle
+    memorySize: 128
+    events:
+      - http:
+          path: prices/{type_id}
+          method: get
+          cors: true
+  feedback:
+    handler: feedback.handle
+    memorySize: 128
+    events:
+      - http:
+          path: feedback
+          method: post
+          cors: true
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    pythonBin: python3
+
+package:
+  exclude:
+    - venv/**
+    - node_modules/**
+    - scripts/**
