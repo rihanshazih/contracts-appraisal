@@ -3,12 +3,16 @@ from requests_futures.sessions import FuturesSession
 import boto3
 from collections import Counter
 from decimal import Decimal
+from uuid import uuid4
+import time
+from random import randint
 
 session = FuturesSession()
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
 structures_table = dynamodb.Table('contract-appraisal-structures')
 contracts_table = dynamodb.Table('contract-appraisal-contracts')
 latest_id_table = dynamodb.Table('contract-appraisal-latest-contract-id')
+scheduling_table = dynamodb.Table('contract-appraisal-scheduling')
 
 
 def get_public_structures():
@@ -63,6 +67,14 @@ def handle(event, context):
     for contract in new_contracts:
         contracts_table.put_item(
             Item=json.loads(json.dumps(contract), parse_float=Decimal)
+        )
+        scheduling_table.put_item(
+            Item={
+                'id': uuid4(),
+                'contract_id': contract['contract_id'],
+                # schedule the first check for within 10 to 60 minutes into the future
+                'ttl': int(time.time()) + randint(10 * 60, 60 * 60)
+            }
         )
 
     print('Added %d new contracts' % len(new_contracts))

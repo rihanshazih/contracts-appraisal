@@ -20,6 +20,10 @@ functions:
       CLIENT_ID: ${file(./config.${self:provider.stage}.json):clientId}
       CLIENT_SECRET: ${file(./config.${self:provider.stage}.json):clientSecret}
     timeout: 240
+  expiryUpdater:
+    handler: expiry_updater.handle
+    events:
+      - stream: arn:aws:dynamodb:us-east-1:256608350746:table/contract-appraisal-scheduling/stream/2019-05-27T17:45:46.066
   getItemPrice:
     handler: getItemPrice.handle
     memorySize: 128
