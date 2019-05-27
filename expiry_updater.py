@@ -144,7 +144,7 @@ def reschedule(contract, within_hour=False):
 
     scheduling_table.put_item(
         Item={
-            'id': uuid4(),
+            'id': str(uuid4()),
             'contract_id': contract['contract_id'],
             'ttl': int(time.time()) + delay
         }

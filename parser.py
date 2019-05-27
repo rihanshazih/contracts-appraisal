@@ -70,7 +70,7 @@ def handle(event, context):
         )
         scheduling_table.put_item(
             Item={
-                'id': uuid4(),
+                'id': str(uuid4()),
                 'contract_id': contract['contract_id'],
                 # schedule the first check for within 10 to 60 minutes into the future
                 'ttl': int(time.time()) + randint(10 * 60, 60 * 60)
