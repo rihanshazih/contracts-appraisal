@@ -15,7 +15,7 @@ functions:
   parser:
     handler: parser.handle
     events:
-      - schedule: cron(30 * * * ? *)
+      - schedule: rate(30 minutes)
     environment:
       CLIENT_ID: ${file(./config.${self:provider.stage}.json):clientId}
       CLIENT_SECRET: ${file(./config.${self:provider.stage}.json):clientSecret}

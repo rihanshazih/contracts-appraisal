@@ -6,6 +6,7 @@ from decimal import Decimal
 from uuid import uuid4
 import time
 from random import randint
+from datetime import datetime
 
 session = FuturesSession()
 dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
@@ -28,6 +29,11 @@ def set_latest_id(id):
 
 
 def handle(event, context):
+    # if we are running into downtime, then skip this run
+    now = datetime.now()
+    if now.hour == 11 and now.minute < 10:
+        return
+
     batch_size = 1000
     if 'batch_size' in event:
         batch_size = int(event['batch_size'])

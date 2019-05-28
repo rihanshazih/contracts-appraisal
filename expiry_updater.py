@@ -2,7 +2,6 @@ from requests_futures.sessions import FuturesSession
 import boto3
 import time
 import math
-import datetime
 from boto3.dynamodb.conditions import Key
 from random import randint
 from uuid import uuid4
@@ -17,8 +16,6 @@ scheduling_table = dynamodb.Table('contract-appraisal-scheduling')
 
 
 def handle(event, context):
-    print('Received %d records' % len(event['Records']))
-
     contracts = []
     for record in event['Records']:
 
@@ -26,10 +23,7 @@ def handle(event, context):
         # only about removes which happen when the ttl is hit
         event_name = record['eventName']
         if event_name != 'REMOVE':
-            print('Skipping %s' % event_name)
             continue
-
-        print(event)
 
         # note that this image is in DynamoDB style, not a regular python object and needs to be converted accordingly
         item = record['dynamodb']
@@ -48,6 +42,7 @@ def handle(event, context):
     if now.hour == 11 and now.minute < 10:
         for c in contracts:
             reschedule(c, within_hour=True)
+        return
 
     if len(contracts) > 100:
         print('rescheduling %d contracts' % (len(contracts) - 100))
@@ -55,14 +50,17 @@ def handle(event, context):
         for r in reschedule_contracts:
             reschedule(r, within_hour=True)
         contracts = contracts[:100]
-    process_contracts(contracts)
+
+    if len(contracts) > 0:
+        print('processing %d contracts' % len(contracts))
+        process_contracts(contracts)
 
 
 def process_contracts(contracts):
     futures = []
     for contract in contracts:
         headers = {}
-        if 'Etag' in contract:
+        if 'ETag' in contract:
             headers['If-None-Match'] = contract['ETag']
         futures.append({
             'future': session.get(url='https://esi.evetech.net/v1/contracts/public/items/%d' % contract['contract_id'],
@@ -75,9 +73,13 @@ def process_contracts(contracts):
         contract = f['contract']
 
         score = 0
+        print('received status code %d for contract %d' % (response.status_code, contract['contract_id']))
+        if 'x-esi-error-limit-remain' in response.headers and response.status_code < 400:
+            lowest_remain = int(response.headers['x-esi-error-limit-remain'])
+            if lowest_remain < 100:
+                print('remaining tries before error limiting: %d' % lowest_remain)
         if response.status_code == 200:
             etag = response.headers['ETag']
-            # print('Updating etag for %d' % contract['contract_id'])
             contracts_table.update_item(
                 Key={
                     'contract_id': contract['contract_id']
@@ -95,9 +97,10 @@ def process_contracts(contracts):
             continue
         elif response.status_code == 403:
             error = response.json()
+            print(error)
             if 'error' in error and 'accepted by player' in error['error']:
                 date = contract['date_issued']
-                days_since_issued = (datetime.datetime.now() - datetime.datetime.strptime(date, '%Y-%m-%dT%H:%M:%SZ')).days
+                days_since_issued = (datetime.now() - datetime.strptime(date, '%Y-%m-%dT%H:%M:%SZ')).days
                 if days_since_issued == 0:
                     score = 5
                 else:
@@ -107,14 +110,12 @@ def process_contracts(contracts):
             pass
         else:
             if response.status_code >= 420:
-                print('%d' % response.status_code)
                 reschedule(contract)
                 continue
             else:
                 print('unknown error code %d, %s' % (response.status_code, response.content))
 
         score = round(score * 100)
-        # print('score %d for contract %d' % (score, contract['contract_id']))
 
         date_scored = datetime.strftime(datetime.now(), '%Y-%m-%dT%H:%M:%SZ')
         contracts_table.update_item(
@@ -128,19 +129,31 @@ def process_contracts(contracts):
             },
             ReturnValues="NONE"
         )
+        print('scored %d with %d' % (contract['contract_id'], score))
 
 
 def reschedule(contract, within_hour=False):
-    if not within_hour and 'date_issued' in contract and get_age(contract['date_issue']).days > 1:
-        # if more than a day has passed, then wait 10 to 20 hours (to stay within a day)
-        minimum_wait = 10 * 60 * 60
-        maximum_wait = 20 * 60 * 60
+    contract_age = get_age(contract['date_issued'])
+    if not within_hour and 'date_issued' in contract and contract_age.days >= 1:
+
+        print('debug: long delay for %d with days age %d' % (contract['contract_id'], contract_age.days))
+
+        hours = contract_age.total_seconds() // 3600  # // makes an int division
+        # scale
+        # 1 day: 12h
+        # 2 days: 17h
+        # 9 days: 2d
+        # 24 days: 3d
+        maximum_wait = int(math.sqrt(25 * hours) * 60 * 60)
+
+        minimum_wait = maximum_wait // 2
+
         delay = randint(minimum_wait, maximum_wait)
     else:
         # while we're on the first day check the contract within 10 to 60 minutes
         delay = randint(10 * 60, 60 * 60)
 
-    print('scheduling %d with a delay of %d seconds' % (contract['contract_id'], delay))
+    print('rescheduling %d with a delay of %d seconds' % (contract['contract_id'], delay))
 
     scheduling_table.put_item(
         Item={
